@@ -4,12 +4,17 @@ import subprocess
 import os
 import threading
 import time
+import platform
 
 def compress_pdf(input_path, output_path, compression_level):
     """
     Comprime PDF usando Ghostscript via subprocess
     """
-    gs_exe = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gswin64c.exe")
+    if platform.system() == 'Windows':
+        gs_exe = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gswin64c.exe")
+    else:
+        gs_exe = "/usr/bin/gs"
+
 
     gs_command = [
         gs_exe,
