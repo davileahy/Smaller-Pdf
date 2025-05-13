@@ -1,15 +1,18 @@
-import PySimpleGUI as sg
+import tkinter as tk
+from tkinter import filedialog, messagebox, ttk
 import subprocess
 import os
 import threading
 import time
 
-def compress_pdf(input_path, output_path, compression_level, window):
+def compress_pdf(input_path, output_path, compression_level):
     """
-    Função para comprimir PDF usando Ghostscript via subprocess
+    Comprime PDF usando Ghostscript via subprocess
     """
+    gs_exe = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gswin64c.exe")
+
     gs_command = [
-        "gs",
+        gs_exe,
         "-sDEVICE=pdfwrite",
         "-dCompatibilityLevel=1.4",
         f"-dPDFSETTINGS=/{compression_level}",
@@ -21,85 +24,89 @@ def compress_pdf(input_path, output_path, compression_level, window):
     ]
 
     try:
-        # Simula progresso enquanto o subprocess roda
         process = subprocess.Popen(gs_command)
         while process.poll() is None:
-            window.write_event_value('-PROGRESS-', None)
             time.sleep(0.2)
-        window.write_event_value('-DONE-', None)
-
+        on_done()
     except Exception as e:
-        window.write_event_value('-ERROR-', str(e))
-
+        on_error(e)
 
 def get_file_size(path):
-    """
-    Retorna tamanho do arquivo em MB
-    """
     size = os.path.getsize(path) / (1024 * 1024)
     return round(size, 2)
 
+def browse_input():
+    filename = filedialog.askopenfilename(filetypes=[("PDF Files", "*.pdf")])
+    if filename:
+        input_var.set(filename)
 
-# Layout da janela
-layout = [
-    [sg.Text("Arquivo PDF:"), sg.Input(key='-IN-'), sg.FileBrowse(file_types=(("PDF Files", "*.pdf"),))],
-    [sg.Text("Salvar como:"), sg.Input(key='-OUT-'), sg.FileSaveAs(file_types=(("PDF Files", "*.pdf"),))],
-    [sg.Text("Nível de Compressão:")],
-    [sg.Combo(values=['screen', 'ebook', 'printer', 'prepress'], default_value='ebook', key='-LEVEL-')],
-    [sg.ProgressBar(max_value=100, orientation='h', size=(30, 20), key='-PROG-')],
-    [sg.Button("Comprimir"), sg.Button("Sair")]
-]
+def browse_output():
+    filename = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("PDF Files", "*.pdf")])
+    if filename:
+        output_var.set(filename)
 
-# Criar janela
-window = sg.Window("Compressão de PDF", layout)
+def start_compression():
+    input_pdf = input_var.get()
+    output_pdf = output_var.get()
+    level = compression_var.get()
 
-# Loop principal
-progress = 0
+    if not input_pdf or not output_pdf:
+        messagebox.showerror("Erro", "Por favor selecione os arquivos.")
+        return
 
-while True:
-    event, values = window.read(timeout=100)
-    
-    if event in (sg.WINDOW_CLOSED, "Sair"):
-        break
+    if os.path.exists(output_pdf):
+        os.remove(output_pdf)
 
-    if event == "Comprimir":
-        input_pdf = values['-IN-']
-        output_pdf = values['-OUT-']
-        level = values['-LEVEL-']
+    try:
+        size_before = get_file_size(input_pdf)
+        messagebox.showinfo("Tamanho Original", f"{size_before} MB")
 
-        if not input_pdf or not output_pdf:
-            sg.popup_error("Por favor selecione os arquivos.")
-            continue
+        progress_bar.start(10)
 
-        if os.path.exists(output_pdf):
-            os.remove(output_pdf)  # Remove se já existe para evitar erro
+        threading.Thread(target=compress_pdf, args=(input_pdf, output_pdf, level), daemon=True).start()
 
-        try:
-            # Mostra tamanho original
-            size_before = get_file_size(input_pdf)
-            sg.popup(f"Tamanho original: {size_before} MB")
+    except Exception as e:
+        messagebox.showerror("Erro", str(e))
 
-            # Inicia thread para compressão
-            threading.Thread(target=compress_pdf, args=(input_pdf, output_pdf, level, window), daemon=True).start()
-            progress = 0
-            window['-PROG-'].update_bar(0)
+def on_done():
+    progress_bar.stop()
+    size_after = get_file_size(output_var.get())
+    messagebox.showinfo("Sucesso", f"Compressão concluída!\nNovo tamanho: {size_after} MB")
+    progress_bar["value"] = 0
 
-        except Exception as e:
-            sg.popup_error(f"Ocorreu um erro: {e}")
+def on_error(e):
+    progress_bar.stop()
+    messagebox.showerror("Erro", f"Erro durante compressão: {str(e)}")
+    progress_bar["value"] = 0
 
-    elif event == '-PROGRESS-':
-        # Incrementa barra de progresso
-        progress = (progress + 5) % 105  # Loop progressivo
-        window['-PROG-'].update_bar(progress)
+# Cria janela principal
+root = tk.Tk()
+root.title("Compressão de PDF")
+root.resizable(False, False)
 
-    elif event == '-DONE-':
-        window['-PROG-'].update_bar(100)
-        size_after = get_file_size(values['-OUT-'])
-        sg.popup(f"Compressão concluída!\nNovo tamanho: {size_after} MB")
-        window['-PROG-'].update_bar(0)
+# Variáveis
+input_var = tk.StringVar()
+output_var = tk.StringVar()
+compression_var = tk.StringVar(value="ebook")
 
-    elif event == '-ERROR-':
-        sg.popup_error(f"Erro durante compressão: {values[event]}")
-        window['-PROG-'].update_bar(0)
+# Layout
+tk.Label(root, text="Arquivo PDF:").grid(row=0, column=0, sticky="w")
+tk.Entry(root, textvariable=input_var, width=40).grid(row=0, column=1)
+tk.Button(root, text="Selecionar", command=browse_input).grid(row=0, column=2)
 
-window.close()
+tk.Label(root, text="Salvar como:").grid(row=1, column=0, sticky="w")
+tk.Entry(root, textvariable=output_var, width=40).grid(row=1, column=1)
+tk.Button(root, text="Selecionar", command=browse_output).grid(row=1, column=2)
+
+tk.Label(root, text="Nível de Compressão:").grid(row=2, column=0, sticky="w")
+compression_options = ['screen', 'ebook', 'printer', 'prepress']
+compression_menu = ttk.Combobox(root, textvariable=compression_var, values=compression_options, state="readonly")
+compression_menu.grid(row=2, column=1, sticky="w")
+
+progress_bar = ttk.Progressbar(root, orient="horizontal", mode="indeterminate", length=250)
+progress_bar.grid(row=3, column=0, columnspan=3, pady=10)
+
+tk.Button(root, text="Comprimir", command=start_compression, width=20).grid(row=4, column=0, columnspan=3, pady=5)
+
+# Executa janela
+root.mainloop()
